@@ -2,12 +2,12 @@ import time
 import numpy as np
 import cv2
 import mss
+import pyautogui
 
 from .config import (
     EVERY_SECONDS,
     RED1_HSV_LO, RED1_HSV_HI,
     RED2_HSV_LO, RED2_HSV_HI,
-    # opcional:
     ROI, USE_ROI
 )
 from .vision import find_red_boxes_from_mask, hsv_mask, draw_debug
@@ -26,47 +26,53 @@ def crop_roi(frame, roi):
     return frame[y:y+h, x:x+w].copy()
 
 
+def click_point(x, y):
+    pyautogui.moveTo(x, y, duration=0.05)
+    pyautogui.click()
+
+
 def main():
-    last_run = 0.0
-
     while True:
-        now = time.time()
-        if now - last_run < EVERY_SECONDS:
-            time.sleep(0.05)
-            continue
-        last_run = now
+        frame_full = capture_screen(monitor_index=1)
 
-        frame = capture_screen(monitor_index=1)
-
-        # opcional: restringe a análise a uma região fixa
+        # offsets para clique (se usar ROI)
         offset_x = 0
         offset_y = 0
+        frame = frame_full
+
         if USE_ROI:
             offset_x, offset_y, w, h = ROI
-            frame = crop_roi(frame, ROI)
+            frame = crop_roi(frame_full, ROI)
 
         mask = hsv_mask(frame, ranges=[
             (RED1_HSV_LO, RED1_HSV_HI),
             (RED2_HSV_LO, RED2_HSV_HI),
         ])
 
-        cv2.imshow("mask_red", mask)
-        cv2.waitKey(1)
-
-
         boxes = find_red_boxes_from_mask(mask)
 
-        print(f"[INFO] Encontrados {len(boxes)} quadrados vermelhos")
-
-        # se estiver usando ROI, ajusta as coordenadas para referência global/da tela
-        for i, (_, _, w, h, area, cx, cy) in enumerate(boxes[:10], start=1):
-            gx = cx + offset_x
-            gy = cy + offset_y
-            print(f"  #{i}: center_roi=({cx},{cy}) center_screen=({gx},{gy}) size=({w}x{h}) area={int(area)}")
-
+        # Debug (opcional)
+        cv2.imshow("mask_red", mask)
         dbg = draw_debug(frame, boxes)
         cv2.imshow("debug", dbg)
         cv2.waitKey(1)
+
+        if boxes:
+            # pega o maior (já vem ordenado por área)
+            x, y, w, h, area, cx, cy = boxes[0]
+
+            # converte para coordenadas de tela se estiver usando ROI
+            click_x = cx + offset_x
+            click_y = cy + offset_y
+
+            print(f"[INFO] Clique no maior alvo: area={int(area)} pos=({click_x},{click_y})")
+            click_point(click_x, click_y)
+
+            # depois de clicar, aguarda 20s antes de procurar de novo
+            time.sleep(EVERY_SECONDS)
+        else:
+            print("[INFO] Nenhum quadrado vermelho encontrado. Tentando de novo em 1s...")
+            time.sleep(1)
 
 
 if __name__ == "__main__":
