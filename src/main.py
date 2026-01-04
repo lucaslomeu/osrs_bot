@@ -305,7 +305,7 @@ def main():
     next_click_time = 0.0
     post_dead_until = 0.0
 
-    # guard: coordenadas do alvo atual (em coords RELATIVAS ao monitor da janela)
+    # guard: current target coordinates (in coords RELATIVE to the window's monitor)
     current_target_rel = None  # (cx, cy)
 
     with mss.mss() as sct:
