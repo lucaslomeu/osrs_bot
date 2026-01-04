@@ -356,8 +356,10 @@ def main():
                 none_streak = 0
                 continue
 
-            # 3) Scan pink boxes when needed
-            pink_boxes = scan_pink_boxes(sct, bounds)
+            # 3) Scan pink boxes only for states that need them
+            pink_boxes = None
+            if state in (STATE_ATTACK, STATE_ACQUIRE):
+                pink_boxes = scan_pink_boxes(sct, bounds)
 
             # 4) STATE_ATTACK: never click while in ATTACK state
             if state == STATE_ATTACK:
