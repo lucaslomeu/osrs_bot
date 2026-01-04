@@ -148,7 +148,27 @@ def find_window(owner_contains: str, title_contains: str = ""):
 
 
 def roi_from_window(bounds, roi_rel, scale=1.0):
-    """Return an absolute ROI dict from window bounds and a relative ROI config."""
+    """
+    Return an absolute ROI dict from window bounds and a relative ROI config.
+
+    Parameters
+    ----------
+    bounds : dict
+        A dictionary describing the window position and size, typically with
+        keys "X", "Y", "Width" and "Height" in screen coordinates.
+    roi_rel : dict
+        A dictionary describing the ROI relative to the window, with keys
+        "left", "top", "width" and "height" expressed in the same coordinate
+        system as `bounds`.
+    scale : float, optional
+        A global scaling factor applied to both the window bounds and the
+        relative ROI. This is useful when the coordinates returned by the
+        window system are in a different scale than the capture or processing
+        coordinate space (for example on HiDPI / retina displays or when
+        working with downscaled screenshots). The default of 1.0 means
+        "no scaling", which is appropriate when all coordinates are already
+        in the same pixel space.
+    """
     wx = bounds["X"] * scale
     wy = bounds["Y"] * scale
     ww = bounds["Width"] * scale
