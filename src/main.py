@@ -176,10 +176,14 @@ def roi_from_window(bounds, roi_rel, scale=1.0):
 # HP OCR
 # ------------------------
 
+# Vertical position where HP text starts (55% down from the top of the image).
+HP_BAND_VERTICAL_OFFSET = 0.55
+
+
 def crop_hp_band(img_bgr):
     """Crop the lower band of the image where the HP text is expected to be."""
     h, w = img_bgr.shape[:2]
-    return img_bgr[int(h * 0.55):, :]
+    return img_bgr[int(h * HP_BAND_VERTICAL_OFFSET):, :]
 
 
 def parse_hp(txt, default_max=25):
