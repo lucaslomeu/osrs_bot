@@ -225,7 +225,7 @@ def parse_hp(txt, default_max=25):
     if len(digits) == 4 and digits.endswith(f"{default_max:02d}"):
         return int(digits[:2]), default_max
     if len(digits) == 3 and digits.endswith(str(default_max)):
-        return int(digits[:-2]), default_max
+        return int(digits[:-len(str(default_max))]), default_max
 
     return None
 
