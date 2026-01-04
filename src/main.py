@@ -309,34 +309,40 @@ def main():
     current_target_rel = None  # (cx, cy)
 
     with mss.mss() as sct:
-        while True:
-            bounds, win = find_window("runelite")
-            if not bounds:
-                print("RuneLite window not found. Retrying in 5s.")
-                time.sleep(5)
-                continue
+        try:
+            while True:
+                bounds, win = find_window("runelite")
+                if not bounds:
+                    print("RuneLite window not found. Retrying in 5s.")
+                    time.sleep(5)
+                    continue
 
-            # 1) Read HP first (decides state transitions without clicking)
-            hp, hp_txt = read_hp(sct, bounds, default_max=25)
+                # 1) Read HP first (decides state transitions without clicking)
+                hp, hp_txt = read_hp(sct, bounds, default_max=25)
 
-            # Atualiza streaks de forma robusta:
-            # - hp == 0   -> fortalece "morreu"
-            # - hp > 0    -> fortalece "vivo"
-            # - hp is None -> perdemos a barra; zera estados de vivo/morto
-            if hp is None:
-                none_streak += 1
-                zero_streak = 0
-                alive_streak = 0
-            else:
-                none_streak = 0
-                if hp == 0:
-                    zero_streak += 1
+                # Atualiza streaks de forma robusta:
+                # - hp == 0   -> fortalece "morreu"
+                # - hp > 0    -> fortalece "vivo"
+                # - hp is None -> perdemos a barra; zera estados de vivo/morto
+                if hp is None:
+                    none_streak += 1
+                    zero_streak = 0
                     alive_streak = 0
                 else:
-                    alive_streak += 1
-                    zero_streak = 0
+                    none_streak = 0
+                    if hp == 0:
+                        zero_streak += 1
+                        alive_streak = 0
+                    else:
+                        alive_streak += 1
+                        zero_streak = 0
 
-            hp_is_zero = (zero_streak >= HP_ZERO_STREAK_TO_CONFIRM)
+                hp_is_zero = (zero_streak >= HP_ZERO_STREAK_TO_CONFIRM)
+        except KeyboardInterrupt:
+            print("KeyboardInterrupt received. Shutting down gracefully.")
+        except Exception as e:
+            # Log unexpected errors and allow context manager to clean up resources
+            print(f"Unexpected error in main loop: {e}")
             hp_is_alive = (alive_streak >= HP_ALIVE_STREAK_TO_CONFIRM)
 
             now = time.time()
