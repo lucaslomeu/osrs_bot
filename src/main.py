@@ -340,10 +340,10 @@ def main():
                 # 1) Read HP first (decides state transitions without clicking)
                 hp, hp_txt = read_hp(sct, bounds, default_max=25)
 
-                # Atualiza streaks de forma robusta:
-                # - hp == 0   -> fortalece "morreu"
-                # - hp > 0    -> fortalece "vivo"
-                # - hp is None -> perdemos a barra; zera estados de vivo/morto
+                # Update streaks robustly:
+                # - hp == 0   -> strengthens "dead"
+                # - hp > 0    -> strengthens "alive"
+                # - hp is None -> lost the bar; reset alive/dead states
                 if hp is None:
                     none_streak += 1
                     zero_streak = 0
@@ -358,118 +358,127 @@ def main():
                         zero_streak = 0
 
                 hp_is_zero = (zero_streak >= HP_ZERO_STREAK_TO_CONFIRM)
+                hp_is_alive = (alive_streak >= HP_ALIVE_STREAK_TO_CONFIRM)
+
+                now = time.time()
+                print(
+                    f"[{state}] HP: {hp} (txt='{hp_txt}') "
+                    f"zero_streak={zero_streak} alive_streak={alive_streak} none_streak={none_streak}"
+                )
+
+                # 2) POST_DEAD state: wait and do nothing
+                if state == STATE_POST_DEAD:
+                    if now < post_dead_until:
+                        time.sleep(0.05)
+                        continue
+                    # Waiting period is over -> go back to ACQUIRE and search for a new target
+                    state = STATE_ACQUIRE
+                    current_target_rel = None
+                    # Reset counters so we don't get stuck on old HP=0 state
+                    zero_streak = 0
+                    alive_streak = 0
+                    none_streak = 0
+                    continue
+
+                # 3) Scan pink boxes when needed
+                pink_boxes = scan_pink_boxes(sct, bounds)
+
+                # 4) STATE_ATTACK: never click while in ATTACK state
+                if state == STATE_ATTACK:
+                    # If HP==0 is confirmed, go into POST_DEAD waiting state
+                    if hp_is_zero:
+                        post_dead_until = now + random.uniform(*POST_DEAD_WAIT)
+                        state = STATE_POST_DEAD
+                        print(
+                            f"HP=0 confirmed. Waiting {post_dead_until-now:.2f}s "
+                            "before searching next target."
+                        )
+                        continue
+
+                    # If OCR is uncertain for too long, or target left the pink box, re-acquire without clicking
+                    if none_streak >= OCR_NONE_TOLERANCE:
+                        print("HP OCR uncertain for too long. Re-acquiring target without clicking.")
+                        state = STATE_ACQUIRE
+                        current_target_rel = None
+                        time.sleep(0.1)
+                        continue
+
+                    if current_target_rel is not None:
+                        cx, cy = current_target_rel
+                        if not find_box_containing_point(pink_boxes, cx, cy):
+                            print("Current target no longer in pink box. Re-acquiring without clicking.")
+                            state = STATE_ACQUIRE
+                            current_target_rel = None
+                            time.sleep(0.05)
+                            continue
+
+                    # Still attacking -> do not click
+                    time.sleep(0.08)
+                    continue
+
+                # 5) STATE_ACQUIRE: choose a target and click once (only inside a pink box)
+                if state == STATE_ACQUIRE:
+                    if not pink_boxes:
+                        print("No pink boxes found. Re-scanning in 0.3s.")
+                        time.sleep(0.3)
+                        continue
+
+                    # If HP still looks alive (HP>0 confirmed), something is already engaged.
+                    # Avoid mis-clicking again while a target is alive.
+                    if hp_is_alive:
+                        print("HP still alive (engaged). Switching to ATTACK without clicking.")
+                        state = STATE_ATTACK
+                        time.sleep(0.05)
+                        continue
+
+                    target_box, target_index = choose_target(pink_boxes, target_index)
+                    if not target_box:
+                        time.sleep(0.1)
+                        continue
+
+                    x, y, w, h, _, cx, cy = target_box
+
+                    # Strong validation: the click point MUST be inside some pink box from the current scan
+                    if not find_box_containing_point(pink_boxes, cx, cy):
+                        print("Validation failed: point is not in a pink box. Re-scanning.")
+                        time.sleep(0.05)
+                        continue
+
+                    screen_x = bounds["X"] + cx
+                    screen_y = bounds["Y"] + cy
+
+                    # Extra guard: never click outside the game window
+                    if not (
+                        bounds["X"] <= screen_x <= bounds["X"] + bounds["Width"] and
+                        bounds["Y"] <= screen_y <= bounds["Y"] + bounds["Height"]
+                    ):
+                        print("Protection: click coordinate outside window. Re-scanning.")
+                        time.sleep(0.05)
+                        continue
+
+                    # Cooldown to avoid accidental spam clicks
+                    if now < next_click_time:
+                        time.sleep(0.02)
+                        continue
+
+                    # Single click to start the attack
+                    pyautogui.click(screen_x, screen_y)
+                    next_click_time = now + random.uniform(*CLICK_COOLDOWN)
+
+                    current_target_rel = (cx, cy)
+                    state = STATE_ATTACK
+
+                    print(
+                        f"Clicked pink box at ({screen_x},{screen_y}). "
+                        "Now in ATTACK state (no further clicks)."
+                    )
+                    time.sleep(0.12)
+                    continue
         except KeyboardInterrupt:
             print("KeyboardInterrupt received. Shutting down gracefully.")
         except Exception as e:
             # Log unexpected errors and allow context manager to clean up resources
             print(f"Unexpected error in main loop: {e}")
-            hp_is_alive = (alive_streak >= HP_ALIVE_STREAK_TO_CONFIRM)
-
-            now = time.time()
-            print(f"[{state}] HP: {hp} (txt='{hp_txt}') zero_streak={zero_streak} alive_streak={alive_streak} none_streak={none_streak}")
-
-            # 2) POST_DEAD state: wait and do nothing
-            if state == STATE_POST_DEAD:
-                if now < post_dead_until:
-                    time.sleep(0.05)
-                    continue
-                # Waiting period is over -> go back to ACQUIRE and search for a new target
-                state = STATE_ACQUIRE
-                current_target_rel = None
-                # zera contadores para evitar “grudar” em hp=0 antigo
-                zero_streak = 0
-                alive_streak = 0
-                none_streak = 0
-                continue
-
-            # 3) Scan pink boxes only for states that need them
-            pink_boxes = None
-            if state in (STATE_ATTACK, STATE_ACQUIRE):
-                pink_boxes = scan_pink_boxes(sct, bounds)
-
-            # 4) STATE_ATTACK: never click while in ATTACK state
-            if state == STATE_ATTACK:
-                # If HP==0 is confirmed, go into POST_DEAD waiting state
-                if hp_is_zero:
-                    post_dead_until = now + random.uniform(*POST_DEAD_WAIT)
-                    state = STATE_POST_DEAD
-                    print(f"HP=0 confirmed. Waiting {post_dead_until-now:.2f}s before searching next target.")
-                    continue
-
-                # If OCR is uncertain for too long, or target left the pink box, re-acquire without clicking
-                if none_streak >= OCR_NONE_TOLERANCE:
-                    print("HP OCR uncertain for too long. Re-acquiring target without clicking.")
-                    state = STATE_ACQUIRE
-                    current_target_rel = None
-                    time.sleep(0.1)
-                    continue
-
-                if current_target_rel is not None:
-                    cx, cy = current_target_rel
-                    if not find_box_containing_point(pink_boxes, cx, cy):
-                        print("Current target no longer in pink box. Re-acquiring without clicking.")
-                        state = STATE_ACQUIRE
-                        current_target_rel = None
-                        time.sleep(0.05)
-                        continue
-
-                # Still attacking -> do not click
-                time.sleep(0.08)
-                continue
-
-            # 5) STATE_ACQUIRE: choose a target and click once (only inside a pink box)
-            if state == STATE_ACQUIRE:
-                if not pink_boxes:
-                    print("No pink boxes found. Re-scanning in 0.3s.")
-                    time.sleep(0.3)
-                    continue
-
-                # If HP still looks alive (HP>0 confirmed), something is already engaged.
-                # Avoid mis-clicking again while a target is alive.
-                if hp_is_alive:
-                    print("HP still alive (engaged). Switching to ATTACK without clicking.")
-                    state = STATE_ATTACK
-                    time.sleep(0.05)
-                    continue
-
-                target_box, target_index = choose_target(pink_boxes, target_index)
-                if not target_box:
-                    time.sleep(0.1)
-                    continue
-
-                x, y, w, h, _, cx, cy = target_box
-
-                # Strong validation: the click point MUST be inside some pink box from the current scan
-                if not find_box_containing_point(pink_boxes, cx, cy):
-                    print("Validation failed: point is not in a pink box. Re-scanning.")
-                    time.sleep(0.05)
-                    continue
-
-                screen_x = bounds["X"] + cx
-                screen_y = bounds["Y"] + cy
-
-                # Extra guard: never click outside the game window
-                if not (bounds["X"] <= screen_x <= bounds["X"] + bounds["Width"] and
-                        bounds["Y"] <= screen_y <= bounds["Y"] + bounds["Height"]):
-                    print("Protection: click coordinate outside window. Re-scanning.")
-                    time.sleep(0.05)
-                    continue
-
-                # Cooldown to avoid accidental spam clicks
-                if now < next_click_time:
-                    time.sleep(0.02)
-                    continue
-
-                # Single click to start the attack
-                pyautogui.click(screen_x, screen_y)
-                next_click_time = now + random.uniform(*CLICK_COOLDOWN)
-
-                current_target_rel = (cx, cy)
-                state = STATE_ATTACK
-
-                print(f"Clicked pink box at ({screen_x},{screen_y}). Now in ATTACK state (no further clicks).")
-                time.sleep(0.12)
-                continue
 
 
 if __name__ == "__main__":
