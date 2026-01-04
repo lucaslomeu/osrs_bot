@@ -10,7 +10,6 @@ from .config import (
     RED2_HSV_LO, RED2_HSV_HI,
     ROI, USE_ROI
 )
-
 from .vision import find_red_boxes_from_mask, hsv_mask, draw_debug
 
 
@@ -53,10 +52,10 @@ def main():
         boxes = find_red_boxes_from_mask(mask)
 
         # Debug (opcional)
-        # cv2.imshow("mask_red", mask)
-        # dbg = draw_debug(frame, boxes)
-        # cv2.imshow("debug", dbg)
-        # cv2.waitKey(1)
+        cv2.imshow("mask_red", mask)
+        dbg = draw_debug(frame, boxes)
+        cv2.imshow("debug", dbg)
+        cv2.waitKey(1)
 
         if boxes:
             # pega o maior (já vem ordenado por área)
