@@ -217,7 +217,7 @@ def parse_hp(txt, default_max=25):
     if re.fullmatch(r"\d{1,3}", txt):
         val = int(txt)
         if val == default_max:
-            return 0, default_max
+            return default_max, default_max
         if val < default_max:
             return None
 
