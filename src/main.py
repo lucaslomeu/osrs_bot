@@ -1,48 +1,72 @@
 import cv2
 import numpy as np
-import re
-import mss
-import pytesseract
-import pyautogui
-import time
+import os
 import random
+import re
+import time
+
+import mss
+import pyautogui
+import pytesseract
 
 from Quartz import (
+    CGDisplayBounds,
+    CGDisplayPixelsWide,
+    CGMainDisplayID,
     CGWindowListCopyWindowInfo,
     kCGWindowListOptionOnScreenOnly,
     kCGNullWindowID,
 )
 
-# Minimum contour area for a pink box to be considered a valid target
+# Minimum contour area for a color box to be considered a valid target
 MIN_AREA = 200
 
 # ------------------------
 # CONFIGURATION
 # ------------------------
 
-PINK_RANGES = [
-    ((145, 120, 120), (170, 255, 255)),
+# Attack (target) color: red
+ATTACK_COLOR_RANGES = [
+    ((0, 120, 120), (10, 255, 255)),
+    ((170, 120, 120), (180, 255, 255)),
 ]
 
-ROI_RELATIVE = {
+# Heal color: cyan / light blue (configure in RuneLite)
+HEAL_COLOR_RANGES = [
+    ((85, 120, 120), (100, 255, 255)),
+]
+
+# HP overlay ROI (top/left)
+ROI_HP_OVERLAY = {
     "left": 0,
     "top": 35,
     "width": 140,
     "height": 60,
 }
 
+# Heal inventory ROI (bottom/right) - adjust after first run
+ROI_HEAL_INVENTORY = {
+    "left": 520,
+    "top": 270,
+    "width": 200,
+    "height": 260,
+}
+
 # State machine states
 STATE_ACQUIRE = "ACQUIRE"      # searching for a target and (if valid) clicking once
 STATE_ATTACK = "ATTACK"        # currently attacking: never click
-STATE_POST_DEAD = "POST_DEAD"  # HP confirmed as 0: wait a bit, then go back to ACQUIRE
 
 # Robustness thresholds
-HP_ZERO_STREAK_TO_CONFIRM = 3   # consecutive HP reads at 0 to confirm target is dead
-HP_ALIVE_STREAK_TO_CONFIRM = 1  # consecutive HP reads > 0 to confirm target is alive
-OCR_NONE_TOLERANCE = 8          # consecutive None HP reads before re-acquiring target
+HP_LOW_PCT = 0.25               # heal when HP <= 25%
+HP_LOW_STREAK = 2               # consecutive low HP reads required to heal
+HP_LAST_VALID_TTL = 1.5         # seconds to reuse last valid HP after OCR failure
+TARGET_MISSING_STREAK = 2       # consecutive misses before re-acquiring target
 
-POST_DEAD_WAIT = (1.2, 2.5)     # delay after confirmed death before searching another target
-CLICK_COOLDOWN = (0.15, 0.35)   # cooldown to avoid double-clicking by accident
+ATTACK_CLICK_COOLDOWN = (0.15, 0.35)  # cooldown to avoid double-clicking by accident
+HEAL_CLICK_COOLDOWN = (1.0, 1.5)      # cooldown to avoid spam healing
+
+DEBUG_SAVE_FRAMES = False
+DEBUG_DIR = "debug_frames"
 
 # Safer PyAutoGUI defaults
 pyautogui.FAILSAFE = True
@@ -74,15 +98,13 @@ def hsv_mask(frame_bgr: np.ndarray, ranges):
     return cleanup_mask(mask)
 
 
-def find_pink_boxes_from_mask(mask: np.ndarray):
-    """Find bounding boxes for pink regions in the given binary mask."""
+def find_boxes_from_mask(mask: np.ndarray):
+    """Find bounding boxes for regions in the given binary mask."""
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     boxes = []
 
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area < MIN_AREA:
-            continue
 
         x, y, w, h = cv2.boundingRect(cnt)
         cx = x + w // 2
@@ -91,6 +113,13 @@ def find_pink_boxes_from_mask(mask: np.ndarray):
 
     boxes.sort(key=lambda b: b[4], reverse=True)
     return boxes
+
+
+def choose_largest_box(boxes):
+    """Return the largest box by area, or None."""
+    if not boxes:
+        return None
+    return boxes[0]
 
 
 def point_in_box(px, py, box):
@@ -110,6 +139,17 @@ def find_box_containing_point(boxes, px, py):
 # ------------------------
 # WINDOW / ROI
 # ------------------------
+
+def get_display_scale():
+    """Return the macOS display scale (pixels per point) for the main display."""
+    display_id = CGMainDisplayID()
+    bounds = CGDisplayBounds(display_id)
+    points_width = bounds.size.width
+    pixels_width = CGDisplayPixelsWide(display_id)
+    if not points_width:
+        return 1.0
+    return float(pixels_width) / float(points_width)
+
 
 def find_window(owner_contains: str, title_contains: str = ""):
     """Find the largest on-screen window whose owner/title contains the given strings."""
@@ -145,6 +185,26 @@ def find_window(owner_contains: str, title_contains: str = ""):
                 best = (bounds, w)
 
     return best if best else (None, None)
+
+
+def scale_bounds(bounds, scale=1.0):
+    """Scale window bounds from points to pixels."""
+    return {
+        "X": int(bounds["X"] * scale),
+        "Y": int(bounds["Y"] * scale),
+        "Width": int(bounds["Width"] * scale),
+        "Height": int(bounds["Height"] * scale),
+    }
+
+
+def bounds_to_region(bounds):
+    """Convert window bounds to an mss region dict."""
+    return {
+        "left": int(bounds["X"]),
+        "top": int(bounds["Y"]),
+        "width": int(bounds["Width"]),
+        "height": int(bounds["Height"]),
+    }
 
 
 def roi_from_window(bounds, roi_rel, scale=1.0):
@@ -262,14 +322,14 @@ def ocr_hp_from_mask(mask):
     return txt
 
 
-def read_hp(sct, bounds, default_max=25):
-    """Capture the HP region from the given window bounds and return (hp_value, raw_text)."""
-    ROI_HP = roi_from_window(bounds, ROI_RELATIVE)
+def read_hp(sct, bounds, scale=1.0, default_max=25):
+    """Capture the HP region from the given window bounds and return (cur_hp, max_hp, raw_text)."""
+    ROI_HP = roi_from_window(bounds, ROI_HP_OVERLAY, scale=scale)
     shot_hp = sct.grab(ROI_HP)
     img_hp = np.array(shot_hp)[:, :, :3]
     hp_band = crop_hp_band(img_hp)
 
-    best_hp = None
+    best_hp = None  # tuple (cur, max)
     best_txt = ""
     for thr in (185, 175, 165):
         mask = extract_white_text(hp_band, thr=thr)
@@ -281,32 +341,24 @@ def read_hp(sct, bounds, default_max=25):
             break
         best_txt = hp_txt
 
-    current_hp = best_hp[0] if best_hp else None
-    return current_hp, best_txt
+    if best_hp:
+        return best_hp[0], best_hp[1], best_txt
+    return None, None, best_txt
 
 
 # ------------------------
-# TARGET SCAN
+# COLOR SCAN
 # ------------------------
 
-def scan_pink_boxes(sct, bounds):
-    """Capture the game window and return all detected pink target boxes."""
-    monitor = {"top": bounds["Y"], "left": bounds["X"], "width": bounds["Width"], "height": bounds["Height"]}
-    full_shot = sct.grab(monitor)
-    full_img = np.array(full_shot)[:, :, :3]
-
-    pink_mask = hsv_mask(full_img, PINK_RANGES)
-    pink_boxes = find_pink_boxes_from_mask(pink_mask)
-    return pink_boxes
-
-
-def choose_target(pink_boxes, target_index):
-    """Pick a target box from the list using a circular index strategy."""
-    if not pink_boxes:
-        return None, 0
-    if target_index >= len(pink_boxes):
-        target_index = 0
-    return pink_boxes[target_index], target_index
+def scan_color_boxes_in_region(sct, region, ranges, min_area=MIN_AREA):
+    """Capture a region and return all detected color boxes for given HSV ranges."""
+    shot = sct.grab(region)
+    img = np.array(shot)[:, :, :3]
+    mask = hsv_mask(img, ranges)
+    boxes = find_boxes_from_mask(mask)
+    if min_area is not None:
+        boxes = [b for b in boxes if b[4] >= min_area]
+    return boxes
 
 
 # ------------------------
@@ -314,171 +366,187 @@ def choose_target(pink_boxes, target_index):
 # ------------------------
 
 def main():
-    """Main bot loop: acquire pink targets, attack once, then monitor HP until death."""
-    target_index = 0
+    """Main bot loop: acquire red targets, attack once, and heal by color when HP is low."""
     state = STATE_ACQUIRE
 
-    zero_streak = 0
-    alive_streak = 0
-    none_streak = 0
+    hp_low_streak = 0
+    target_missing_streak = 0
 
-    next_click_time = 0.0
-    post_dead_until = 0.0
+    next_attack_click_time = 0.0
+    next_heal_click_time = 0.0
+
+    last_valid_hp = None
+    last_valid_max = None
+    last_valid_ts = 0.0
 
     # guard: current target coordinates (in coords RELATIVE to the window's monitor)
     current_target_rel = None  # (cx, cy)
 
     with mss.mss() as sct:
-        try:
-            while True:
-                bounds, win = find_window("runelite")
+        scale = get_display_scale()
+        while True:
+            try:
+                bounds, _ = find_window("runelite")
                 if not bounds:
                     print("RuneLite window not found. Retrying in 5s.")
                     time.sleep(5)
                     continue
 
-                # 1) Read HP first (decides state transitions without clicking)
-                hp, hp_txt = read_hp(sct, bounds, default_max=25)
-
-                # Update streaks robustly:
-                # - hp == 0   -> strengthens "dead"
-                # - hp > 0    -> strengthens "alive"
-                # - hp is None -> lost the bar; reset alive/dead states
-                if hp is None:
-                    none_streak += 1
-                    zero_streak = 0
-                    alive_streak = 0
-                else:
-                    none_streak = 0
-                    if hp == 0:
-                        zero_streak += 1
-                        alive_streak = 0
-                    else:
-                        alive_streak += 1
-                        zero_streak = 0
-
-                hp_is_zero = (zero_streak >= HP_ZERO_STREAK_TO_CONFIRM)
-                hp_is_alive = (alive_streak >= HP_ALIVE_STREAK_TO_CONFIRM)
+                bounds_px = scale_bounds(bounds, scale)
+                window_region = bounds_to_region(bounds_px)
 
                 now = time.time()
+
+                # 1) Read HP first (decides heal attempts)
+                hp_cur, hp_max, hp_txt = read_hp(sct, bounds, scale=scale, default_max=25)
+                hp_missing = (hp_cur is None or hp_max is None)
+                if DEBUG_SAVE_FRAMES and hp_missing:
+                    os.makedirs(DEBUG_DIR, exist_ok=True)
+                    hp_roi = roi_from_window(bounds, ROI_HP_OVERLAY, scale=scale)
+                    cv2.imwrite(
+                        os.path.join(DEBUG_DIR, f"hp_missing_{int(now)}.png"),
+                        np.array(sct.grab(hp_roi))[:, :, :3],
+                    )
+                if hp_cur is not None and hp_max is not None:
+                    last_valid_hp = hp_cur
+                    last_valid_max = hp_max
+                    last_valid_ts = now
+                else:
+                    if last_valid_hp is not None and now - last_valid_ts <= HP_LAST_VALID_TTL:
+                        hp_cur = last_valid_hp
+                        hp_max = last_valid_max
+                    else:
+                        hp_cur = None
+                        hp_max = None
+
+                if hp_cur is not None and hp_max:
+                    if hp_cur / hp_max <= HP_LOW_PCT:
+                        hp_low_streak += 1
+                    else:
+                        hp_low_streak = 0
+                else:
+                    hp_low_streak = 0
+
+                hp_is_low = (hp_low_streak >= HP_LOW_STREAK)
+
                 print(
-                    f"[{state}] HP: {hp} (txt='{hp_txt}') "
-                    f"zero_streak={zero_streak} alive_streak={alive_streak} none_streak={none_streak}"
+                    f"[{state}] HP: {hp_cur}/{hp_max} (txt='{hp_txt}') "
+                    f"low_streak={hp_low_streak}"
                 )
 
-                # 2) POST_DEAD state: wait and do nothing
-                if state == STATE_POST_DEAD:
-                    if now < post_dead_until:
-                        time.sleep(0.05)
-                        continue
-                    # Waiting period is over -> go back to ACQUIRE and search for a new target
-                    state = STATE_ACQUIRE
-                    current_target_rel = None
-                    # Reset counters so we don't get stuck on old HP=0 state
-                    zero_streak = 0
-                    alive_streak = 0
-                    none_streak = 0
-                    continue
+                # 2) Heal attempt (higher priority than attack clicks)
+                if hp_is_low and now >= next_heal_click_time:
+                    heal_roi = roi_from_window(bounds, ROI_HEAL_INVENTORY, scale=scale)
+                    heal_boxes = scan_color_boxes_in_region(
+                        sct, heal_roi, HEAL_COLOR_RANGES, min_area=MIN_AREA
+                    )
+                    heal_box = choose_largest_box(heal_boxes)
+                    if heal_box:
+                        hx, hy, hw, hh, _, hcx, hcy = heal_box
+                        screen_x = heal_roi["left"] + hcx
+                        screen_y = heal_roi["top"] + hcy
 
-                # 3) Scan pink boxes when needed
-                pink_boxes = scan_pink_boxes(sct, bounds)
+                        # guard: ensure click is inside window bounds
+                        if (
+                            bounds_px["X"] <= screen_x <= bounds_px["X"] + bounds_px["Width"]
+                            and bounds_px["Y"] <= screen_y <= bounds_px["Y"] + bounds_px["Height"]
+                        ):
+                            pyautogui.click(screen_x, screen_y)
+                            next_heal_click_time = now + random.uniform(*HEAL_CLICK_COOLDOWN)
+                            print(f"Heal click at ({screen_x},{screen_y}).")
+                            if DEBUG_SAVE_FRAMES:
+                                os.makedirs(DEBUG_DIR, exist_ok=True)
+                                cv2.imwrite(
+                                    os.path.join(DEBUG_DIR, f"heal_{int(now)}.png"),
+                                    np.array(sct.grab(heal_roi))[:, :, :3],
+                                )
+
+                # 3) Scan attack color boxes across the entire window
+                attack_boxes = scan_color_boxes_in_region(
+                    sct, window_region, ATTACK_COLOR_RANGES, min_area=MIN_AREA
+                )
 
                 # 4) STATE_ATTACK: never click while in ATTACK state
                 if state == STATE_ATTACK:
-                    # If HP==0 is confirmed, go into POST_DEAD waiting state
-                    if hp_is_zero:
-                        post_dead_until = now + random.uniform(*POST_DEAD_WAIT)
-                        state = STATE_POST_DEAD
-                        print(
-                            f"HP=0 confirmed. Waiting {post_dead_until-now:.2f}s "
-                            "before searching next target."
-                        )
-                        continue
-
-                    # If OCR is uncertain for too long, or target left the pink box, re-acquire without clicking
-                    if none_streak >= OCR_NONE_TOLERANCE:
-                        print("HP OCR uncertain for too long. Re-acquiring target without clicking.")
-                        state = STATE_ACQUIRE
-                        current_target_rel = None
-                        time.sleep(0.1)
-                        continue
-
                     if current_target_rel is not None:
                         cx, cy = current_target_rel
-                        if not find_box_containing_point(pink_boxes, cx, cy):
-                            print("Current target no longer in pink box. Re-acquiring without clicking.")
-                            state = STATE_ACQUIRE
-                            current_target_rel = None
-                            time.sleep(0.05)
-                            continue
+                        if find_box_containing_point(attack_boxes, cx, cy):
+                            target_missing_streak = 0
+                        else:
+                            target_missing_streak += 1
+
+                    if target_missing_streak >= TARGET_MISSING_STREAK:
+                        print("Target missing. Re-acquiring.")
+                        state = STATE_ACQUIRE
+                        current_target_rel = None
+                        target_missing_streak = 0
+                        time.sleep(0.05)
+                        continue
 
                     # Still attacking -> do not click
                     time.sleep(0.08)
                     continue
 
-                # 5) STATE_ACQUIRE: choose a target and click once (only inside a pink box)
+                # 5) STATE_ACQUIRE: choose a target and click once (only inside a red box)
                 if state == STATE_ACQUIRE:
-                    if not pink_boxes:
-                        print("No pink boxes found. Re-scanning in 0.3s.")
+                    if not attack_boxes:
+                        print("No attack boxes found. Re-scanning in 0.3s.")
                         time.sleep(0.3)
                         continue
 
-                    # If HP still looks alive (HP>0 confirmed), something is already engaged.
-                    # Avoid mis-clicking again while a target is alive.
-                    if hp_is_alive:
-                        print("HP still alive (engaged). Switching to ATTACK without clicking.")
-                        state = STATE_ATTACK
-                        time.sleep(0.05)
-                        continue
-
-                    target_box, target_index = choose_target(pink_boxes, target_index)
+                    target_box = choose_largest_box(attack_boxes)
                     if not target_box:
                         time.sleep(0.1)
                         continue
 
                     x, y, w, h, _, cx, cy = target_box
 
-                    # Strong validation: the click point MUST be inside some pink box from the current scan
-                    if not find_box_containing_point(pink_boxes, cx, cy):
-                        print("Validation failed: point is not in a pink box. Re-scanning.")
+                    # Strong validation: the click point MUST be inside some attack box
+                    if not find_box_containing_point(attack_boxes, cx, cy):
+                        print("Validation failed: point is not in an attack box. Re-scanning.")
                         time.sleep(0.05)
                         continue
 
-                    screen_x = bounds["X"] + cx
-                    screen_y = bounds["Y"] + cy
+                    screen_x = bounds_px["X"] + cx
+                    screen_y = bounds_px["Y"] + cy
 
                     # Extra guard: never click outside the game window
                     if not (
-                        bounds["X"] <= screen_x <= bounds["X"] + bounds["Width"] and
-                        bounds["Y"] <= screen_y <= bounds["Y"] + bounds["Height"]
+                        bounds_px["X"] <= screen_x <= bounds_px["X"] + bounds_px["Width"]
+                        and bounds_px["Y"] <= screen_y <= bounds_px["Y"] + bounds_px["Height"]
                     ):
                         print("Protection: click coordinate outside window. Re-scanning.")
                         time.sleep(0.05)
                         continue
 
                     # Cooldown to avoid accidental spam clicks
-                    if now < next_click_time:
+                    if now < next_attack_click_time:
                         time.sleep(0.02)
                         continue
 
                     # Single click to start the attack
                     pyautogui.click(screen_x, screen_y)
-                    next_click_time = now + random.uniform(*CLICK_COOLDOWN)
+                    next_attack_click_time = now + random.uniform(*ATTACK_CLICK_COOLDOWN)
 
                     current_target_rel = (cx, cy)
                     state = STATE_ATTACK
 
                     print(
-                        f"Clicked pink box at ({screen_x},{screen_y}). "
+                        f"Clicked attack box at ({screen_x},{screen_y}). "
                         "Now in ATTACK state (no further clicks)."
                     )
                     time.sleep(0.12)
                     continue
-        except KeyboardInterrupt:
-            print("KeyboardInterrupt received. Shutting down gracefully.")
-        except Exception as e:
-            # Log unexpected errors and allow context manager to clean up resources
-            print(f"Unexpected error in main loop: {e}")
+            except pyautogui.FailSafeException:
+                print("PyAutoGUI fail-safe triggered. Exiting.")
+                break
+            except KeyboardInterrupt:
+                print("KeyboardInterrupt received. Shutting down gracefully.")
+                break
+            except Exception as e:
+                print(f"Unexpected error in main loop: {e}")
+                time.sleep(0.5)
+                continue
 
 
 if __name__ == "__main__":
