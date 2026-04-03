@@ -1,34 +1,51 @@
 # osrs_bot
 
-Simple macOS bot for Old School RuneScape that:
-
-- finds pink target boxes on the RuneLite window
-- clicks once to attack
-- reads HP via OCR
-- waits for the target to die before acquiring a new one
+A small macOS bot toolkit for Old School RuneScape, split by activity.
 
 ## Requirements
 
 - macOS (uses Quartz APIs)
 - Python 3.9+
-- Tesseract OCR installed (for `pytesseract`)
-  - With Homebrew: `brew install tesseract`
 
 ## Setup
 
-Create and activate a virtualenv (optional but recommended), then install deps:
+Install dependencies:
 
-- With `uv`:
-  - `uv pip install -r requirements.txt`
-- Or with `pip`:
-  - `pip install -r requirements.txt`
+- `pip install -r requirements.txt`
+
+## Configuration
+
+- All settings live in `config.json`
+- `fletching.first_click` and `fletching.second_click` accept either `x/y` or `x_ratio/y_ratio`
+- `magic.click` uses `x_ratio/y_ratio`
+- If your RuneLite layout changes, recalibrate the click points and HP templates
+
+## HP Calibration
+
+Before using `combat`, calibrate HP:
+
+- `./.venv/bin/python3 -m src.cli calibrate-hp`
+
+Templates are saved in `data/hp_templates`.
 
 ## Running
 
-1. Open RuneLite and log into the game.
-2. Make sure the game window is visible on the main screen.
-3. From the project root, run:
+Main commands:
 
-- `python -m src.main`
+- `./.venv/bin/python3 -m src.cli combat`
+- `./.venv/bin/python3 -m src.cli fletching`
+- `./.venv/bin/python3 -m src.cli magic`
+- `./.venv/bin/python3 -m src.cli hp`
+- `./.venv/bin/python3 -m src.cli auto-click`
 
-The bot will start scanning for pink boxes and attacking targets automatically.
+Custom config:
+
+- `./.venv/bin/python3 -m src.cli combat --config /path/to/config.json`
+
+Click calibration:
+
+- `./.venv/bin/python3 -m src.cli calibrate-click magic.click`
+- `./.venv/bin/python3 -m src.cli calibrate-click fletching.first_click`
+- `./.venv/bin/python3 -m src.cli calibrate-click fletching.second_click`
+
+Move the mouse over the desired point inside RuneLite and press Enter. The command updates `config.json` automatically.
