@@ -1,51 +1,51 @@
-# osrs_bot
+# OSRS Clicker
 
-A small macOS bot toolkit for Old School RuneScape, split by activity.
+Native macOS app built with SwiftUI for creating, calibrating, and running OSRS click presets.
+
+## Project Structure
+
+- `OSRSClicker/OSRSClicker.xcodeproj`: Xcode project
+- `OSRSClicker/App`: app entrypoint
+- `OSRSClicker/Design`: shared theme values
+- `OSRSClicker/Models`: preset and action models
+- `OSRSClicker/Services`: automation, persistence, permissions, and window lookup
+- `OSRSClicker/ViewModels`: app state orchestration
+- `OSRSClicker/Views`: sidebar, builder, and runner UI
 
 ## Requirements
 
-- macOS (uses Quartz APIs)
-- Python 3.9+
+- macOS 14 or newer
+- Xcode 16 or newer
+- Accessibility permission enabled for automation
 
-## Setup
+## Build And Run
 
-Install dependencies:
+1. Open `OSRSClicker/OSRSClicker.xcodeproj` in Xcode.
+2. Select the `OSRSClicker` scheme.
+3. Choose `My Mac`.
+4. Use `Product > Clean Build Folder` after structural changes if Xcode cached an older build.
+5. Press `Run`.
 
-- `pip install -r requirements.txt`
+## First Launch
 
-## Configuration
+1. Create or select a preset.
+2. Confirm `Owner Contains` matches your game client owner, usually `RuneLite`.
+3. Use `Test Window Match` to verify the app can resolve the target window.
+4. Add `Click` and `Wait` steps in the `Builder` tab.
+5. Press `Calibrate Click`, move the mouse inside the matched game window, and press `F6`.
+6. Use the `Runner` tab to start, pause, resume, or stop the preset.
 
-- All settings live in `config.json`
-- `fletching.first_click` and `fletching.second_click` accept either `x/y` or `x_ratio/y_ratio`
-- `magic.click` uses `x_ratio/y_ratio`
-- If your RuneLite layout changes, recalibrate the click points and HP templates
+## Preset Storage
 
-## HP Calibration
+Presets are stored locally in:
 
-Before using `combat`, calibrate HP:
+- `~/Library/Application Support/OSRSClicker/presets.json`
 
-- `./.venv/bin/python3 -m src.cli calibrate-hp`
+Rebuilding the app in Xcode does not remove saved presets.
 
-Templates are saved in `data/hp_templates`.
+## Distribution Notes
 
-## Running
-
-Main commands:
-
-- `./.venv/bin/python3 -m src.cli combat`
-- `./.venv/bin/python3 -m src.cli fletching`
-- `./.venv/bin/python3 -m src.cli magic`
-- `./.venv/bin/python3 -m src.cli hp`
-- `./.venv/bin/python3 -m src.cli auto-click`
-
-Custom config:
-
-- `./.venv/bin/python3 -m src.cli combat --config /path/to/config.json`
-
-Click calibration:
-
-- `./.venv/bin/python3 -m src.cli calibrate-click magic.click`
-- `./.venv/bin/python3 -m src.cli calibrate-click fletching.first_click`
-- `./.venv/bin/python3 -m src.cli calibrate-click fletching.second_click`
-
-Move the mouse over the desired point inside RuneLite and press Enter. The command updates `config.json` automatically.
+- Bundle identifier: `com.osrsclicker.macapp`
+- Test the Accessibility permission flow outside Xcode before release
+- Add an app icon and signing configuration before public distribution
+- Notarize the app if you want a normal end-user install experience
