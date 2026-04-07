@@ -99,7 +99,7 @@ final class WindowLocator {
             guard
                 let boundsDict,
                 let bounds = CGRect(dictionaryRepresentation: boundsDict),
-                let score = matchScore(ownerName: ownerName, title: title, target: target),
+                let score = matchScore(ownerName: ownerName, target: target),
                 isActionable(bounds: bounds)
             else {
                 continue
@@ -138,7 +138,7 @@ final class WindowLocator {
 
             for windowElement in windowElements {
                 let title = stringAttribute(kAXTitleAttribute, from: windowElement) ?? ""
-                guard let score = matchScore(ownerName: ownerName, title: title, target: target) else {
+                guard let score = matchScore(ownerName: ownerName, target: target) else {
                     continue
                 }
 
@@ -165,26 +165,12 @@ final class WindowLocator {
         return bestMatch
     }
 
-    private func matchScore(ownerName: String, title: String, target: TargetWindow) -> CGFloat? {
+    private func matchScore(ownerName: String, target: TargetWindow) -> CGFloat? {
         let ownerFilter = normalizeForSearch(target.ownerContains)
-        let titleFilter = normalizeForSearch(target.titleContains)
         let ownerMatches = matchesContains(ownerFilter, in: ownerName)
-        let titleMatches = matchesContains(titleFilter, in: title)
 
-        if ownerFilter.isEmpty && titleFilter.isEmpty {
+        if ownerFilter.isEmpty {
             return 1
-        }
-
-        if !titleFilter.isEmpty {
-            guard titleMatches else {
-                return nil
-            }
-
-            var score: CGFloat = 2_000
-            if ownerMatches {
-                score += 5_000
-            }
-            return score
         }
 
         guard ownerMatches else {

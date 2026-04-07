@@ -62,10 +62,7 @@ struct PresetEditorView: View {
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.textPrimary)
 
-                HStack {
-                    labeledField(title: "Owner Contains", text: $preset.targetWindow.ownerContains)
-                    labeledField(title: "Title Contains", text: $preset.targetWindow.titleContains)
-                }
+                labeledField(title: "Owner Contains", text: $preset.targetWindow.ownerContains)
 
                 HStack(alignment: .top, spacing: 10) {
                     Circle()
@@ -89,7 +86,7 @@ struct PresetEditorView: View {
                     Spacer()
                 }
 
-                Text("Default owner is RuneLite. Relative capture and execution use these values to resolve the game window.")
+                Text("Default owner is RuneLite. Calibration and execution now always use RuneLite-relative coordinates.")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -109,18 +106,28 @@ struct PresetEditorView: View {
                 Toggle("Block relative clicks outside the matched window", isOn: $preset.safety.enforceRelativePointInsideWindow)
                     .toggleStyle(.switch)
 
-                HStack {
-                    coordinateField(title: "Max Runtime (min)", value: $preset.safety.maxRuntimeMinutes)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Behavior")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(Theme.textSecondary)
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        coordinateField(title: "Max Runtime (min)", value: $preset.safety.maxRuntimeMinutes)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Behavior")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(Theme.textSecondary)
+                            Text("The runner stops with a clear message after this limit. Use `0` to disable.")
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .foregroundStyle(Theme.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        coordinateField(title: "Max Runtime (min)", value: $preset.safety.maxRuntimeMinutes)
                         Text("The runner stops with a clear message after this limit. Use `0` to disable.")
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                             .foregroundStyle(Theme.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -129,32 +136,24 @@ struct PresetEditorView: View {
     private var actionsCard: some View {
         card {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Actions")
-                            .font(.system(size: 18, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Theme.textPrimary)
-                        Text("Build a linear workflow with click and wait steps.")
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(Theme.textSecondary)
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        actionHeaderText
+                        Spacer()
+                        HStack(spacing: 10) {
+                            addClickButton
+                            addWaitButton
+                        }
+                        .frame(maxWidth: 360)
                     }
 
-                    Spacer()
-
-                    Button {
-                        preset.actions.append(.clickStep())
-                    } label: {
-                        Label("Add Click", systemImage: "cursorarrow.click.2")
+                    VStack(alignment: .leading, spacing: 14) {
+                        actionHeaderText
+                        VStack(spacing: 10) {
+                            addClickButton
+                            addWaitButton
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
-
-                    Button {
-                        preset.actions.append(.waitStep())
-                    } label: {
-                        Label("Add Wait", systemImage: "timer")
-                    }
-                    .buttonStyle(.bordered)
                 }
 
                 if preset.actions.isEmpty {
@@ -170,9 +169,12 @@ struct PresetEditorView: View {
                             step: step,
                             moveUp: { moveAction(from: index, to: index - 1) },
                             moveDown: { moveAction(from: index, to: index + 1) },
+                            duplicate: { duplicateAction(at: index) },
                             delete: { preset.actions.remove(at: index) },
                             isFirst: index == 0,
-                            isLast: index == preset.actions.count - 1
+                            isLast: index == preset.actions.count - 1,
+                            isExpanded: viewModel.isStepExpanded(step.wrappedValue.id),
+                            toggleExpanded: { viewModel.toggleStepExpanded(step.wrappedValue.id) }
                         )
                     }
                 }
@@ -211,9 +213,55 @@ struct PresetEditorView: View {
         preset.actions.insert(element, at: destination)
     }
 
+    private func duplicateAction(at index: Int) {
+        guard preset.actions.indices.contains(index) else { return }
+        var duplicatedAction = preset.actions[index]
+        duplicatedAction.id = UUID()
+        duplicatedAction.title += " Copy"
+        preset.actions.insert(duplicatedAction, at: index + 1)
+        viewModel.setStepExpanded(duplicatedAction.id, expanded: true)
+    }
+
+    private var actionHeaderText: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Actions")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+            Text("Build a linear workflow with click and wait steps.")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    private var addClickButton: some View {
+        Button {
+            let newStep = ActionStep.clickStep()
+            preset.actions.append(newStep)
+            viewModel.setStepExpanded(newStep.id, expanded: true)
+        } label: {
+            Label("Add Click", systemImage: "cursorarrow.click.2")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Theme.accent)
+    }
+
+    private var addWaitButton: some View {
+        Button {
+            let newStep = ActionStep.waitStep()
+            preset.actions.append(newStep)
+            viewModel.setStepExpanded(newStep.id, expanded: true)
+        } label: {
+            Label("Add Wait", systemImage: "timer")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+    }
+
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(Theme.card)

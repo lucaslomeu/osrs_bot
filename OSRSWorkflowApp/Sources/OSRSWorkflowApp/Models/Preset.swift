@@ -57,24 +57,32 @@ enum LoopModeKind: String, Codable, CaseIterable, Identifiable {
 
 struct TargetWindow: Codable, Equatable {
     var ownerContains: String
-    var titleContains: String
 
-    static let `default` = TargetWindow(ownerContains: "RuneLite", titleContains: "")
+    private enum CodingKeys: String, CodingKey {
+        case ownerContains
+        case titleContains
+    }
+
+    static let `default` = TargetWindow(ownerContains: "RuneLite")
+
+    init(ownerContains: String) {
+        self.ownerContains = ownerContains
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ownerContains = try container.decodeIfPresent(String.self, forKey: .ownerContains) ?? "RuneLite"
+        _ = try container.decodeIfPresent(String.self, forKey: .titleContains)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(ownerContains, forKey: .ownerContains)
+    }
 
     var filterDescription: String {
         let owner = ownerContains.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = titleContains.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        switch (owner.isEmpty, title.isEmpty) {
-        case (false, false):
-            return "owner '\(owner)' and title '\(title)'"
-        case (false, true):
-            return "owner '\(owner)'"
-        case (true, false):
-            return "title '\(title)'"
-        case (true, true):
-            return "any visible window"
-        }
+        return owner.isEmpty ? "any visible window" : "owner '\(owner)'"
     }
 }
 
@@ -154,6 +162,10 @@ struct MouseClickAction: Codable, Equatable {
         jitterX: 4,
         jitterY: 4
     )
+
+    var isLegacyAbsolute: Bool {
+        coordinateMode == .absolute
+    }
 }
 
 struct ActionStep: Identifiable, Codable, Equatable {
@@ -190,11 +202,18 @@ struct ActionStep: Identifiable, Codable, Equatable {
         switch kind {
         case .click:
             guard let click else { return "Click" }
+            if click.isLegacyAbsolute {
+                return "\(click.button.displayName) • Legacy absolute click • Recalibrate required"
+            }
             let coordinateSummary = String(format: "%.0f, %.0f", click.point.x, click.point.y)
-            return "\(click.button.displayName) • \(click.coordinateMode.displayName) • \(coordinateSummary) • \(timing.summary)"
+            return "\(click.button.displayName) • RuneLite relative • \(coordinateSummary) • \(timing.summary)"
         case .wait:
             return "Wait • \(timing.summary)"
         }
+    }
+
+    var requiresRecalibration: Bool {
+        click?.isLegacyAbsolute == true
     }
 }
 

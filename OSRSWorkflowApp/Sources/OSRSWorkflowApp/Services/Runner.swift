@@ -4,6 +4,7 @@ import CoreGraphics
 enum RunnerState: Equatable {
     case idle
     case running
+    case paused
     case stopping
     case failed(String)
 
@@ -13,10 +14,23 @@ enum RunnerState: Equatable {
             return "Idle"
         case .running:
             return "Running"
+        case .paused:
+            return "Paused"
         case .stopping:
             return "Stopping"
         case .failed(let message):
             return "Error: \(message)"
+        }
+    }
+}
+
+enum RunnerValidationError: LocalizedError {
+    case legacyAbsoluteClick(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .legacyAbsoluteClick(let title):
+            return "The step '\(title)' uses a legacy absolute click. Recalibrate it before running."
         }
     }
 }
@@ -27,12 +41,15 @@ final class Runner: ObservableObject {
     @Published private(set) var currentStepTitle: String = "No step running"
     @Published private(set) var currentLoop: Int = 0
     @Published private(set) var logs: [String] = []
+    @Published private(set) var elapsedSeconds: Int = 0
 
     private let permissionManager: PermissionManager
     private let windowLocator: WindowLocator
     private let inputExecutor: InputExecutor
     private var task: Task<Void, Never>?
     private var startedAt: Date?
+    private var accumulatedElapsedSeconds: Int = 0
+    private var elapsedTask: Task<Void, Never>?
 
     init(
         permissionManager: PermissionManager,
@@ -71,7 +88,10 @@ final class Runner: ObservableObject {
         state = .running
         currentStepTitle = "Preparing preset"
         currentLoop = 0
+        elapsedSeconds = 0
+        accumulatedElapsedSeconds = 0
         startedAt = .now
+        startElapsedTimer()
         appendLog("Started preset '\(preset.name)'.")
 
         task = Task {
@@ -81,15 +101,32 @@ final class Runner: ObservableObject {
 
     func stop() {
         guard task != nil else { return }
+        freezeElapsedClock()
         state = .stopping
         appendLog("Stop requested.")
         task?.cancel()
+    }
+
+    func pause() {
+        guard state == .running else { return }
+        freezeElapsedClock()
+        state = .paused
+        appendLog("Preset paused.")
+    }
+
+    func resume() {
+        guard state == .paused else { return }
+        startedAt = .now
+        state = .running
+        appendLog("Preset resumed.")
     }
 
     private func runPreset(_ preset: Preset, actions: [ActionStep]) async {
         defer {
             task = nil
             startedAt = nil
+            accumulatedElapsedSeconds = 0
+            stopElapsedTimer(reset: true)
             if case .failed = state {
                 currentStepTitle = "Run failed"
             } else {
@@ -119,18 +156,21 @@ final class Runner: ObservableObject {
         } catch is CancellationError {
             appendLog("Preset stopped.")
         } catch {
+            freezeElapsedClock()
             state = .failed(error.localizedDescription)
             appendLog("Run failed: \(error.localizedDescription)")
         }
     }
 
     private func runLoop(loopNumber: Int, actions: [ActionStep], target: TargetWindow, safety: ExecutionSafety) async throws {
+        try await waitIfPaused()
         try checkRuntimeLimit(maxRuntimeMinutes: safety.maxRuntimeMinutes)
         currentLoop = loopNumber
         appendLog("Loop \(loopNumber) started.")
 
         for step in actions {
             try Task.checkCancellation()
+            try await waitIfPaused()
             try checkRuntimeLimit(maxRuntimeMinutes: safety.maxRuntimeMinutes)
             currentStepTitle = step.title
 
@@ -166,7 +206,16 @@ final class Runner: ObservableObject {
 
     private func sleep(seconds: Double) async throws {
         let duration = max(0, seconds)
-        try await Task.sleep(for: .seconds(duration))
+        guard duration > 0 else { return }
+
+        var remaining = duration
+        while remaining > 0 {
+            try Task.checkCancellation()
+            try await waitIfPaused()
+            let slice = min(remaining, 0.2)
+            try await Task.sleep(for: .seconds(slice))
+            remaining -= slice
+        }
     }
 
     private func appendLog(_ message: String) {
@@ -178,6 +227,10 @@ final class Runner: ObservableObject {
     }
 
     private func validatePreflight(for preset: Preset, actions: [ActionStep]) throws {
+        if let legacyStep = actions.first(where: \.requiresRecalibration) {
+            throw RunnerValidationError.legacyAbsoluteClick(legacyStep.title)
+        }
+
         let hasRelativeClicks = actions.contains { step in
             step.kind == .click && step.click?.coordinateMode == .windowRelative
         }
@@ -195,14 +248,57 @@ final class Runner: ObservableObject {
     }
 
     private func checkRuntimeLimit(maxRuntimeMinutes: Double) throws {
-        guard maxRuntimeMinutes > 0, let startedAt else { return }
-        let elapsedMinutes = Date().timeIntervalSince(startedAt) / 60.0
+        guard maxRuntimeMinutes > 0 else { return }
+        let elapsedMinutes = Double(currentElapsedSeconds()) / 60.0
         if elapsedMinutes >= maxRuntimeMinutes {
             throw NSError(
                 domain: "OSRSWorkflowApp.Runner",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Preset stopped after reaching the runtime limit of \(String(format: "%.0f", maxRuntimeMinutes)) minutes."]
             )
+        }
+    }
+
+    private func startElapsedTimer() {
+        elapsedTask?.cancel()
+        elapsedTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                self.elapsedSeconds = self.currentElapsedSeconds()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    private func stopElapsedTimer(reset: Bool) {
+        elapsedTask?.cancel()
+        elapsedTask = nil
+        if reset {
+            elapsedSeconds = 0
+        }
+    }
+
+    private func currentElapsedSeconds() -> Int {
+        let activeSeconds: Int
+        if let startedAt {
+            activeSeconds = max(0, Int(Date().timeIntervalSince(startedAt)))
+        } else {
+            activeSeconds = 0
+        }
+
+        return accumulatedElapsedSeconds + activeSeconds
+    }
+
+    private func freezeElapsedClock() {
+        accumulatedElapsedSeconds = currentElapsedSeconds()
+        startedAt = nil
+        elapsedSeconds = accumulatedElapsedSeconds
+    }
+
+    private func waitIfPaused() async throws {
+        while state == .paused {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .milliseconds(150))
         }
     }
 }
