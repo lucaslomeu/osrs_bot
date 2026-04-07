@@ -86,7 +86,7 @@ struct PresetEditorView: View {
                     Spacer()
                 }
 
-                Text("Default owner is RuneLite. Calibration and execution now always use RuneLite-relative coordinates.")
+                Text("Default owner is RuneLite. Calibration and execution always use window-relative coordinates.")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -227,7 +227,7 @@ struct PresetEditorView: View {
             Text("Actions")
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundStyle(Theme.textPrimary)
-            Text("Build a linear workflow with click and wait steps.")
+            Text("Build a linear preset with click and wait steps.")
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
         }

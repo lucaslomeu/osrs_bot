@@ -12,7 +12,7 @@ struct CalibrationRequest: Equatable {
 final class AppViewModel: ObservableObject {
     private static let confirmKeyCode: UInt16 = 97
     private static let cancelKeyCode: UInt16 = 53
-    private static let calibrationInstructionsText = "Calibration armed. Move the mouse inside RuneLite and press F6 to save. Press Esc to cancel."
+    private static let calibrationInstructionsText = "Calibration armed. Move the mouse inside the matched game window and press F6 to save. Press Esc to cancel."
 
     @Published var transientMessage: String?
     @Published private(set) var calibrationRequest: CalibrationRequest?
@@ -158,7 +158,7 @@ final class AppViewModel: ObservableObject {
 
     private func beginCalibration(_ request: CalibrationRequest) {
         guard permissionManager.refresh() else {
-            transientMessage = "Accessibility permission is required before calibration. Use Request Permission once, then enable OSRSWorkflowApp in System Settings > Privacy & Security > Accessibility."
+            transientMessage = "Accessibility permission is required before calibration. Use Request Permission once, then enable OSRS Clicker in System Settings > Privacy & Security > Accessibility."
             return
         }
 
@@ -250,7 +250,7 @@ final class AppViewModel: ObservableObject {
 
         do {
             let preset = store.presets[location.presetIndex]
-            let point = try captureService.captureRuneLiteRelativePoint(target: preset.targetWindow)
+            let point = try captureService.captureRelativePoint(target: preset.targetWindow)
 
             var click = store.presets[location.presetIndex].actions[location.stepIndex].click ?? .default
             click.coordinateMode = .windowRelative
@@ -259,7 +259,7 @@ final class AppViewModel: ObservableObject {
             store.save()
 
             teardownCalibration(
-                message: "Click calibrated in RuneLite relative mode at \(Int(point.x)), \(Int(point.y))."
+                message: "Click calibrated in window-relative mode at \(Int(point.x)), \(Int(point.y))."
             )
         } catch {
             transientMessage = "\(error.localizedDescription) Reposition the mouse and press F6 again, or Esc to cancel."

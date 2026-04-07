@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "E10000000000000000000001"
-               BuildableName = "OSRSWorkflowApp.app"
-               BlueprintName = "OSRSWorkflowApp"
-               ReferencedContainer = "container:OSRSWorkflowApp.xcodeproj">
+               BuildableName = "OSRSClicker.app"
+               BlueprintName = "OSRSClicker"
+               ReferencedContainer = "container:OSRSClicker.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -44,9 +44,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E10000000000000000000001"
-            BuildableName = "OSRSWorkflowApp.app"
-            BlueprintName = "OSRSWorkflowApp"
-            ReferencedContainer = "container:OSRSWorkflowApp.xcodeproj">
+            BuildableName = "OSRSClicker.app"
+            BlueprintName = "OSRSClicker"
+            ReferencedContainer = "container:OSRSClicker.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -61,9 +61,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E10000000000000000000001"
-            BuildableName = "OSRSWorkflowApp.app"
-            BlueprintName = "OSRSWorkflowApp"
-            ReferencedContainer = "container:OSRSWorkflowApp.xcodeproj">
+            BuildableName = "OSRSClicker.app"
+            BlueprintName = "OSRSClicker"
+            ReferencedContainer = "container:OSRSClicker.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

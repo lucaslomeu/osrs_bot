@@ -19,14 +19,7 @@ final class CaptureService {
         self.windowLocator = windowLocator
     }
 
-    func captureAbsoluteMousePoint() throws -> StoredPoint {
-        guard let cursor = CGEvent(source: nil)?.location else {
-            throw CaptureError.unavailable
-        }
-        return StoredPoint(cursor)
-    }
-
-    func captureRuneLiteRelativePoint(target: TargetWindow) throws -> StoredPoint {
+    func captureRelativePoint(target: TargetWindow) throws -> StoredPoint {
         guard let cursor = CGEvent(source: nil)?.location else {
             throw CaptureError.unavailable
         }

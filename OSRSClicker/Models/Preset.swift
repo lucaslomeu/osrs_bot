@@ -24,20 +24,9 @@ enum MouseButton: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum CoordinateMode: String, Codable, CaseIterable, Identifiable {
+enum CoordinateMode: String, Codable {
     case windowRelative
     case absolute
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .windowRelative:
-            return "RuneLite Relative"
-        case .absolute:
-            return "Absolute Screen"
-        }
-    }
 }
 
 enum TimingMode: String, Codable, CaseIterable, Identifiable {
@@ -206,7 +195,7 @@ struct ActionStep: Identifiable, Codable, Equatable {
                 return "\(click.button.displayName) • Legacy absolute click • Recalibrate required"
             }
             let coordinateSummary = String(format: "%.0f, %.0f", click.point.x, click.point.y)
-            return "\(click.button.displayName) • RuneLite relative • \(coordinateSummary) • \(timing.summary)"
+            return "\(click.button.displayName) • Window relative • \(coordinateSummary) • \(timing.summary)"
         case .wait:
             return "Wait • \(timing.summary)"
         }
@@ -299,7 +288,7 @@ struct Preset: Identifiable, Codable, Equatable {
         Preset(
             id: UUID(),
             name: "Starter Preset",
-            notes: "A simple OSRS workflow with a click and a wait step.",
+            notes: "A simple OSRS preset with a click and a wait step.",
             targetWindow: .default,
             loop: .default,
             safety: .default,

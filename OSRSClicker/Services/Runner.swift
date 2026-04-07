@@ -252,7 +252,7 @@ final class Runner: ObservableObject {
         let elapsedMinutes = Double(currentElapsedSeconds()) / 60.0
         if elapsedMinutes >= maxRuntimeMinutes {
             throw NSError(
-                domain: "OSRSWorkflowApp.Runner",
+                domain: "OSRSClicker.Runner",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Preset stopped after reaching the runtime limit of \(String(format: "%.0f", maxRuntimeMinutes)) minutes."]
             )

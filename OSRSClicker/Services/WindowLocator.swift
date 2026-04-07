@@ -19,7 +19,7 @@ enum WindowLocatorError: LocalizedError {
         case .notFound(let target):
             return "No window matched \(target.filterDescription)."
         case .cursorOutsideWindow:
-            return "The mouse cursor is not inside the RuneLite window."
+            return "The mouse cursor is not inside the matched game window."
         case .pointOutsideWindow:
             return "The saved click point is outside the matched window bounds."
         }
@@ -84,7 +84,7 @@ final class WindowLocator {
     }
 
     private func findDisplayWindow(target: TargetWindow) -> WindowMatch? {
-        guard let windows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
 
@@ -94,13 +94,15 @@ final class WindowLocator {
         for window in windows {
             let ownerName = (window[kCGWindowOwnerName as String] as? String) ?? ""
             let title = (window[kCGWindowName as String] as? String) ?? ""
+            let layer = (window[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
             let boundsDict = window[kCGWindowBounds as String] as? NSDictionary
 
             guard
                 let boundsDict,
                 let bounds = CGRect(dictionaryRepresentation: boundsDict),
                 let score = matchScore(ownerName: ownerName, target: target),
-                isActionable(bounds: bounds)
+                isActionable(bounds: bounds),
+                layer == 0
             else {
                 continue
             }
@@ -223,7 +225,10 @@ final class WindowLocator {
             return nil
         }
 
-        let castedValue = axValue as! AXValue
+        guard CFGetTypeID(axValue) == AXValueGetTypeID() else {
+            return nil
+        }
+        let castedValue = unsafeDowncast(axValue, to: AXValue.self)
         guard AXValueGetType(castedValue) == .cgPoint else {
             return nil
         }
@@ -239,7 +244,10 @@ final class WindowLocator {
             return nil
         }
 
-        let castedValue = axValue as! AXValue
+        guard CFGetTypeID(axValue) == AXValueGetTypeID() else {
+            return nil
+        }
+        let castedValue = unsafeDowncast(axValue, to: AXValue.self)
         guard AXValueGetType(castedValue) == .cgSize else {
             return nil
         }

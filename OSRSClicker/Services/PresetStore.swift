@@ -22,6 +22,8 @@ final class PresetStore: ObservableObject {
 
     private enum Constants {
         static let selectedPresetDefaultsKey = "selectedPresetID"
+        static let currentStorageFolderName = "OSRSClicker"
+        static let presetsFilename = "presets.json"
     }
 
     init(userDefaults: UserDefaults = .standard) {
@@ -138,15 +140,19 @@ final class PresetStore: ObservableObject {
     }
 
     private static func presetsFileURL() throws -> URL {
-        let appSupport = try FileManager.default.url(
+        let appSupport = try applicationSupportDirectoryURL()
+        return appSupport
+            .appendingPathComponent(Constants.currentStorageFolderName, isDirectory: true)
+            .appendingPathComponent(Constants.presetsFilename, isDirectory: false)
+    }
+
+    private static func applicationSupportDirectoryURL() throws -> URL {
+        try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
         )
-        return appSupport
-            .appendingPathComponent("OSRSWorkflowApp", isDirectory: true)
-            .appendingPathComponent("presets.json", isDirectory: false)
     }
 
     private static func loadPresets(using decoder: JSONDecoder) -> [Preset]? {
