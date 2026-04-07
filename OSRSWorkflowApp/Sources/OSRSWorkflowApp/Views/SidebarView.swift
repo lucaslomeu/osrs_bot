@@ -1,16 +1,19 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 struct SidebarView: View {
     @ObservedObject var store: PresetStore
+    @State private var sidebarMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("OSRS Workflow")
+                Text("OSRS Clicker")
                     .font(.system(size: 26, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.textPrimary)
 
-                Text("Native macOS preset builder")
+                Text("Native macOS click preset builder")
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -35,15 +38,58 @@ struct SidebarView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.panel)
 
-            HStack(spacing: 10) {
-                sidebarButton("New", systemImage: "plus") {
-                    store.addPreset()
+            VStack(spacing: 10) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        sidebarButton("New", systemImage: "plus") {
+                            store.addPreset()
+                        }
+                        sidebarButton("Copy", systemImage: "doc.on.doc") {
+                            store.duplicateSelectedPreset()
+                        }
+                        sidebarButton("Delete", systemImage: "trash") {
+                            store.deleteSelectedPreset()
+                        }
+                    }
+
+                    VStack(spacing: 10) {
+                        sidebarButton("New", systemImage: "plus") {
+                            store.addPreset()
+                        }
+                        sidebarButton("Copy", systemImage: "doc.on.doc") {
+                            store.duplicateSelectedPreset()
+                        }
+                        sidebarButton("Delete", systemImage: "trash") {
+                            store.deleteSelectedPreset()
+                        }
+                    }
                 }
-                sidebarButton("Copy", systemImage: "doc.on.doc") {
-                    store.duplicateSelectedPreset()
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        sidebarButton("Import", systemImage: "square.and.arrow.down") {
+                            importPresets()
+                        }
+                        sidebarButton("Export", systemImage: "square.and.arrow.up") {
+                            exportPresets()
+                        }
+                    }
+
+                    VStack(spacing: 10) {
+                        sidebarButton("Import", systemImage: "square.and.arrow.down") {
+                            importPresets()
+                        }
+                        sidebarButton("Export", systemImage: "square.and.arrow.up") {
+                            exportPresets()
+                        }
+                    }
                 }
-                sidebarButton("Delete", systemImage: "trash") {
-                    store.deleteSelectedPreset()
+
+                if let sidebarMessage {
+                    Text(sidebarMessage)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(16)
@@ -66,5 +112,42 @@ struct SidebarView: View {
         }
         .buttonStyle(.bordered)
         .tint(Theme.accent)
+    }
+
+    private func importPresets() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.json]
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+
+        do {
+            try store.importPresets(from: url)
+            sidebarMessage = "Imported presets from \(url.lastPathComponent)."
+        } catch {
+            sidebarMessage = error.localizedDescription
+        }
+    }
+
+    private func exportPresets() {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "osrs-clicker-presets.json"
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+
+        do {
+            try store.exportPresets(to: url)
+            sidebarMessage = "Exported presets to \(url.lastPathComponent)."
+        } catch {
+            sidebarMessage = error.localizedDescription
+        }
     }
 }

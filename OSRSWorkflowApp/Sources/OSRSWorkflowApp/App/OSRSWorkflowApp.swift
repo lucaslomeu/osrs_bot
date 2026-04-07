@@ -3,11 +3,11 @@ import SwiftUI
 @main
 struct OSRSWorkflowMacApp: App {
     var body: some Scene {
-        WindowGroup("OSRS Workflow") {
+        WindowGroup("OSRS Clicker") {
             ContentView()
-                .frame(minWidth: 1240, minHeight: 780)
+                .frame(minWidth: 960, minHeight: 720)
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1440, height: 900)
+        .defaultSize(width: 1280, height: 860)
     }
 }

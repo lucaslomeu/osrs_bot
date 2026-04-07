@@ -1,5 +1,16 @@
 import Foundation
 
+enum PresetTransferError: LocalizedError {
+    case invalidFile
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidFile:
+            return "The selected file does not contain a valid preset export."
+        }
+    }
+}
+
 @MainActor
 final class PresetStore: ObservableObject {
     @Published var presets: [Preset]
@@ -82,6 +93,11 @@ final class PresetStore: ObservableObject {
         var clone = presets[selectedIndex]
         clone.id = UUID()
         clone.name += " Copy"
+        clone.actions = clone.actions.map { action in
+            var duplicatedAction = action
+            duplicatedAction.id = UUID()
+            return duplicatedAction
+        }
         presets.insert(clone, at: selectedIndex + 1)
         select(clone.id)
         save()
@@ -91,6 +107,33 @@ final class PresetStore: ObservableObject {
         guard let selectedIndex else { return }
         presets.remove(at: selectedIndex)
         select(presets.first?.id)
+        save()
+    }
+
+    func exportPresets(to url: URL) throws {
+        let data = try encoder.encode(presets)
+        try data.write(to: url, options: .atomic)
+    }
+
+    func importPresets(from url: URL) throws {
+        let data = try Data(contentsOf: url)
+
+        let importedPresets: [Preset]
+        if let decodedArray = try? decoder.decode([Preset].self, from: data) {
+            importedPresets = decodedArray
+        } else if let decodedSingle = try? decoder.decode(Preset.self, from: data) {
+            importedPresets = [decodedSingle]
+        } else {
+            throw PresetTransferError.invalidFile
+        }
+
+        let normalizedPresets = normalizeImportedPresets(importedPresets)
+        guard !normalizedPresets.isEmpty else {
+            throw PresetTransferError.invalidFile
+        }
+
+        presets.insert(contentsOf: normalizedPresets, at: 0)
+        select(normalizedPresets.first?.id)
         save()
     }
 
@@ -117,6 +160,19 @@ final class PresetStore: ObservableObject {
         } catch {
             print("Failed to load presets: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    private func normalizeImportedPresets(_ presets: [Preset]) -> [Preset] {
+        presets.map { preset in
+            var importedPreset = preset
+            importedPreset.id = UUID()
+            importedPreset.actions = preset.actions.map { action in
+                var importedAction = action
+                importedAction.id = UUID()
+                return importedAction
+            }
+            return importedPreset
         }
     }
 }

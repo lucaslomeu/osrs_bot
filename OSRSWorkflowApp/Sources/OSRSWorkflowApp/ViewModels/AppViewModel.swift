@@ -3,42 +3,20 @@ import SwiftUI
 import AppKit
 import Combine
 
-enum CalibrationMode {
-    case absolute
-    case windowRelative
-
-    var buttonLabel: String {
-        switch self {
-        case .absolute:
-            return "absolute"
-        case .windowRelative:
-            return "RuneLite"
-        }
-    }
-
-    var instructions: String {
-        switch self {
-        case .absolute:
-            return "Calibration armed. Move the mouse to the target point and press F6 to save. Press Esc to cancel."
-        case .windowRelative:
-            return "RuneLite calibration armed. Move the mouse inside RuneLite and press F6 to save. Press Esc to cancel."
-        }
-    }
-}
-
 struct CalibrationRequest: Equatable {
     let presetID: UUID
     let stepID: UUID
-    let mode: CalibrationMode
 }
 
 @MainActor
 final class AppViewModel: ObservableObject {
     private static let confirmKeyCode: UInt16 = 97
     private static let cancelKeyCode: UInt16 = 53
+    private static let calibrationInstructionsText = "Calibration armed. Move the mouse inside RuneLite and press F6 to save. Press Esc to cancel."
 
     @Published var transientMessage: String?
     @Published private(set) var calibrationRequest: CalibrationRequest?
+    @Published private var expandedStepIDs: Set<UUID> = []
 
     let store: PresetStore
     let runner: Runner
@@ -64,30 +42,20 @@ final class AppViewModel: ObservableObject {
         )
 
         bindRuntimeState()
+        bindPresetState()
     }
 
-    func beginAbsoluteCalibration(presetID: UUID, stepID: UUID) {
+    func beginCalibration(presetID: UUID, stepID: UUID) {
         beginCalibration(
             CalibrationRequest(
                 presetID: presetID,
-                stepID: stepID,
-                mode: .absolute
+                stepID: stepID
             )
         )
     }
 
-    func beginRelativeCalibration(presetID: UUID, stepID: UUID) {
-        beginCalibration(
-            CalibrationRequest(
-                presetID: presetID,
-                stepID: stepID,
-                mode: .windowRelative
-            )
-        )
-    }
-
-    func isCalibrating(stepID: UUID, mode: CalibrationMode) -> Bool {
-        calibrationRequest?.stepID == stepID && calibrationRequest?.mode == mode
+    func isCalibrating(stepID: UUID) -> Bool {
+        calibrationRequest?.stepID == stepID
     }
 
     func cancelCalibration() {
@@ -103,8 +71,16 @@ final class AppViewModel: ObservableObject {
         runner.stop()
     }
 
+    func pauseRun() {
+        runner.pause()
+    }
+
+    func resumeRun() {
+        runner.resume()
+    }
+
     var calibrationInstructions: String? {
-        calibrationRequest?.mode.instructions
+        calibrationRequest == nil ? nil : Self.calibrationInstructionsText
     }
 
     func windowMatchSummary(for target: TargetWindow) -> String {
@@ -128,6 +104,22 @@ final class AppViewModel: ObservableObject {
         transientMessage = windowMatchSummary(for: target)
     }
 
+    func isStepExpanded(_ stepID: UUID) -> Bool {
+        expandedStepIDs.contains(stepID)
+    }
+
+    func setStepExpanded(_ stepID: UUID, expanded: Bool) {
+        if expanded {
+            expandedStepIDs.insert(stepID)
+        } else {
+            expandedStepIDs.remove(stepID)
+        }
+    }
+
+    func toggleStepExpanded(_ stepID: UUID) {
+        setStepExpanded(stepID, expanded: !isStepExpanded(stepID))
+    }
+
     private func bindRuntimeState() {
         runner.$state
             .receive(on: DispatchQueue.main)
@@ -140,6 +132,8 @@ final class AppViewModel: ObservableObject {
                     if self.transientMessage == nil {
                         self.transientMessage = "Preset running. Press Esc to stop the current run."
                     }
+                case .paused:
+                    self.transientMessage = "Preset paused. Resume to continue or press Esc to stop."
                 case .idle:
                     break
                 case .stopping:
@@ -151,6 +145,17 @@ final class AppViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    private func bindPresetState() {
+        store.$presets
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] presets in
+                guard let self else { return }
+                let knownStepIDs = Set(presets.flatMap(\.actions).map(\.id))
+                self.expandedStepIDs = self.expandedStepIDs.intersection(knownStepIDs)
+            }
+            .store(in: &cancellables)
+    }
+
     private func beginCalibration(_ request: CalibrationRequest) {
         guard permissionManager.refresh() else {
             transientMessage = "Accessibility permission is required before calibration. Use Request Permission once, then enable OSRSWorkflowApp in System Settings > Privacy & Security > Accessibility."
@@ -158,12 +163,12 @@ final class AppViewModel: ObservableObject {
         }
 
         calibrationRequest = request
-        transientMessage = request.mode.instructions
+        transientMessage = Self.calibrationInstructionsText
         syncHotkeyMonitoring()
     }
 
     private func syncHotkeyMonitoring() {
-        let shouldMonitor = calibrationRequest != nil || runner.state == .running || runner.state == .stopping
+        let shouldMonitor = calibrationRequest != nil || runner.state == .running || runner.state == .paused || runner.state == .stopping
         if shouldMonitor {
             installHotkeyMonitorsIfNeeded()
         } else {
@@ -190,7 +195,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func handleLocalHotkeyEvent(_ event: NSEvent) -> NSEvent? {
-        guard calibrationRequest != nil || runner.state == .running || runner.state == .stopping else {
+        guard calibrationRequest != nil || runner.state == .running || runner.state == .paused || runner.state == .stopping else {
             return event
         }
 
@@ -210,7 +215,7 @@ final class AppViewModel: ObservableObject {
     }
 
     private func handleGlobalHotkeyEvent(_ event: NSEvent) {
-        guard calibrationRequest != nil || runner.state == .running || runner.state == .stopping else { return }
+        guard calibrationRequest != nil || runner.state == .running || runner.state == .paused || runner.state == .stopping else { return }
 
         switch event.keyCode {
         case Self.confirmKeyCode:
@@ -230,7 +235,7 @@ final class AppViewModel: ObservableObject {
             return
         }
 
-        if runner.state == .running || runner.state == .stopping {
+        if runner.state == .running || runner.state == .paused || runner.state == .stopping {
             runner.stop()
             transientMessage = "Current run stopped with Esc."
         }
@@ -244,23 +249,17 @@ final class AppViewModel: ObservableObject {
         }
 
         do {
-            let point: StoredPoint
-            switch calibrationRequest.mode {
-            case .absolute:
-                point = try captureService.captureAbsoluteMousePoint()
-            case .windowRelative:
-                let preset = store.presets[location.presetIndex]
-                point = try captureService.captureRuneLiteRelativePoint(target: preset.targetWindow)
-            }
+            let preset = store.presets[location.presetIndex]
+            let point = try captureService.captureRuneLiteRelativePoint(target: preset.targetWindow)
 
             var click = store.presets[location.presetIndex].actions[location.stepIndex].click ?? .default
-            click.coordinateMode = calibrationRequest.mode == .absolute ? .absolute : .windowRelative
+            click.coordinateMode = .windowRelative
             click.point = point
             store.presets[location.presetIndex].actions[location.stepIndex].click = click
             store.save()
 
             teardownCalibration(
-                message: "Click calibrated in \(calibrationRequest.mode.buttonLabel) mode at \(Int(point.x)), \(Int(point.y))."
+                message: "Click calibrated in RuneLite relative mode at \(Int(point.x)), \(Int(point.y))."
             )
         } catch {
             transientMessage = "\(error.localizedDescription) Reposition the mouse and press F6 again, or Esc to cancel."
