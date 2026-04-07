@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag format and extract version
+        id: version
+        shell: bash
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          if [[ ! "$TAG_NAME" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Release tags must use semver, for example v0.1.0."
+            exit 1
+          fi
+
+          TAG_VERSION="${TAG_NAME#v}"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag_version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate project version
+        id: project_version
+        shell: bash
+        run: |
+          PROJECT_VERSION="$(perl -ne 'print "$1\n" if /MARKETING_VERSION = ([0-9]+\.[0-9]+\.[0-9]+);/' OSRSClicker/OSRSClicker.xcodeproj/project.pbxproj | head -n 1)"
+
+          if [[ -z "$PROJECT_VERSION" ]]; then
+            echo "Unable to read MARKETING_VERSION from the Xcode project."
+            exit 1
+          fi
+
+          if [[ "$PROJECT_VERSION" != "${{ steps.version.outputs.tag_version }}" ]]; then
+            echo "Tag version ${{ steps.version.outputs.tag_version }} does not match MARKETING_VERSION $PROJECT_VERSION."
+            exit 1
+          fi
+
+          echo "project_version=$PROJECT_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Archive unsigned release build
+        run: |
+          xcodebuild \
+            -project OSRSClicker/OSRSClicker.xcodeproj \
+            -scheme OSRSClicker \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$RUNNER_TEMP/OSRSClicker.xcarchive" \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            SKIP_INSTALL=NO
+
+      - name: Package release artifacts
+        shell: bash
+        run: |
+          APP_PATH="$RUNNER_TEMP/OSRSClicker.xcarchive/Products/Applications/OSRSClicker.app"
+          ZIP_PATH="$RUNNER_TEMP/OSRSClicker.app.zip"
+          CHECKSUM_PATH="$RUNNER_TEMP/OSRSClicker.app.zip.sha256"
+
+          if [[ ! -d "$APP_PATH" ]]; then
+            echo "Expected app bundle not found at $APP_PATH."
+            exit 1
+          fi
+
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+          (
+            cd "$RUNNER_TEMP"
+            shasum -a 256 "$(basename "$ZIP_PATH")" > "$CHECKSUM_PATH"
+          )
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            ${{ runner.temp }}/OSRSClicker.app.zip
+            ${{ runner.temp }}/OSRSClicker.app.zip.sha256
