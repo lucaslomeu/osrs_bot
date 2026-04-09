@@ -233,8 +233,11 @@ struct ActionStepCard: View {
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
 
-            TextField(title, value: value, format: .number.precision(.fractionLength(0...2)))
-                .textFieldStyle(.roundedBorder)
+            EditableDoubleField(
+                title: title,
+                value: value,
+                maxFractionDigits: 2
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

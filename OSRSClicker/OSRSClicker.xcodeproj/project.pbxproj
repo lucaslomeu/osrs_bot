@@ -22,6 +22,7 @@
 		A1000000000000000000000D /* PresetEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000D /* PresetEditorView.swift */; };
 		A1000000000000000000000E /* RunnerPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000E /* RunnerPanelView.swift */; };
 		A1000000000000000000000F /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000F /* SidebarView.swift */; };
+		A10000000000000000000011 /* EditableDoubleField.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* EditableDoubleField.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +41,7 @@
 		B1000000000000000000000D /* PresetEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetEditorView.swift; sourceTree = "<group>"; };
 		B1000000000000000000000E /* RunnerPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerPanelView.swift; sourceTree = "<group>"; };
 		B1000000000000000000000F /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		B10000000000000000000011 /* EditableDoubleField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableDoubleField.swift; sourceTree = "<group>"; };
 		B10000000000000000000010 /* OSRSClicker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OSRSClicker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -133,6 +135,7 @@
 			children = (
 				B1000000000000000000000B /* ActionStepCard.swift */,
 				B1000000000000000000000C /* ContentView.swift */,
+				B10000000000000000000011 /* EditableDoubleField.swift */,
 				B1000000000000000000000D /* PresetEditorView.swift */,
 				B1000000000000000000000E /* RunnerPanelView.swift */,
 				B1000000000000000000000F /* SidebarView.swift */,
@@ -220,6 +223,7 @@
 				A1000000000000000000000A /* AppViewModel.swift in Sources */,
 				A1000000000000000000000B /* ActionStepCard.swift in Sources */,
 				A1000000000000000000000C /* ContentView.swift in Sources */,
+				A10000000000000000000011 /* EditableDoubleField.swift in Sources */,
 				A1000000000000000000000D /* PresetEditorView.swift in Sources */,
 				A1000000000000000000000E /* RunnerPanelView.swift in Sources */,
 				A1000000000000000000000F /* SidebarView.swift in Sources */,

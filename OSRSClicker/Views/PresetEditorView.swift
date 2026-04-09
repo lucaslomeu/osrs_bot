@@ -199,8 +199,11 @@ struct PresetEditorView: View {
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
 
-            TextField(title, value: value, format: .number.precision(.fractionLength(0...1)))
-                .textFieldStyle(.roundedBorder)
+            EditableDoubleField(
+                title: title,
+                value: value,
+                maxFractionDigits: 1
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
