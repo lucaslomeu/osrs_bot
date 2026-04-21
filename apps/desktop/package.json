@@ -1,0 +1,16 @@
+{
+  "name": "osrs-clicker-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:sidecar": "node ./scripts/build-sidecar.mjs",
+    "dev:web": "node ./scripts/dev-web.mjs",
+    "tauri:dev": "npm run build:sidecar && npm run tauri dev",
+    "tauri:build": "npm run build:sidecar && npm run tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}
